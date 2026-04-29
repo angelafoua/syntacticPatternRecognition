@@ -65,7 +65,7 @@ def run_pipeline(input_path: str, output_path: str,
 
     try:
         raw = read_raw(spark, input_path, cfg)
-        cells = flatten(raw)
+        cells = flatten(raw, cfg)
         cells = normalize(cells, cfg)
         cells = extract_features(cells, cfg)
         # Materialize the per-cell features once. Without an eager count

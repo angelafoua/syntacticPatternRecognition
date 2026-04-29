@@ -18,6 +18,10 @@ class PipelineConfig:
     input_format: str = "csv"
     input_has_header: bool = False
     input_delimiter: str = ","
+    # Drop the first N physical columns from the cell stream (e.g. a
+    # leading record-id or row-number column the operator wants ignored).
+    # The pipeline still stamps its own internal record_id for lineage.
+    skip_leading_columns: int = 0
     # When ingesting a single column of text, the value is split on this
     # regex into pseudo-columns. Empty string disables splitting.
     text_split_regex: str = r"[\t|;]"

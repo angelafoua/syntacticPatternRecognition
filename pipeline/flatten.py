@@ -66,16 +66,33 @@ def read_raw(spark: SparkSession, path: str, cfg: PipelineConfig,
     return df
 
 
-def flatten(df: DataFrame) -> DataFrame:
-    """Explode any wide row into one cell per (record_id, col_index)."""
+def flatten(df: DataFrame, cfg: Optional[PipelineConfig] = None) -> DataFrame:
+    """Explode any wide row into one cell per (record_id, col_index).
+
+    If ``cfg.skip_leading_columns`` is set, that many leading data columns
+    are dropped before explosion. The internal ``record_id`` is preserved.
+    """
+    skip = int(cfg.skip_leading_columns) if cfg is not None else 0
+
     if "_cells" in df.columns:
+        cells_arr = F.col("_cells")
+        if skip > 0:
+            # slice is 1-indexed in Spark SQL.
+            cells_arr = F.expr(f"slice(_cells, {skip + 1}, size(_cells))")
         cells = df.select(
             F.col("record_id"),
             F.col("_source").alias("source"),
-            F.posexplode("_cells").alias("col_index", "value"),
+            F.posexplode(cells_arr).alias("col_index", "value"),
         )
     else:
         data_cols = [c for c in df.columns if c not in ("record_id", "_source")]
+        if skip > 0:
+            data_cols = data_cols[skip:]
+        if not data_cols:
+            raise ValueError(
+                f"skip_leading_columns={skip} drops every input column; "
+                "nothing left to cluster."
+            )
         # Build an array column preserving original column order, then
         # posexplode so we materialize one row per (record_id, col_index).
         arr = F.array(*[F.col(c).cast(T.StringType()) for c in data_cols])
