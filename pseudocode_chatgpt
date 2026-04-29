@@ -1,0 +1,269 @@
+############################################################
+# SCHEMA-FREE, MIXED-DATA, BILLION-SCALE BLOCKING PIPELINE #
+# (Syntactic pattern-based entity resolution)              #
+############################################################
+
+
+############################
+# INPUT DATA MODEL
+############################
+
+INPUT:
+    dataset = [
+        row_1 = [value_1, value_2, ...],
+        row_2 = [value_1, value_2, ...],
+        ...
+    ]
+
+Each value is implicitly:
+    (record_id, row_id, column_index, raw_value)
+
+
+############################
+# 1. FLATTEN STEP (KEEP RECORD ID)
+############################
+
+function FLATTEN(dataset):
+
+    records = []
+
+    for row_id, row in dataset:
+        for col_index, value in row:
+
+            records.append({
+                record_id: row_id,
+                col_index: col_index,
+                value: value
+            })
+
+    return records
+
+
+############################
+# 2. NORMALIZATION
+############################
+
+function NORMALIZE(value):
+
+    v = to_lowercase(value)
+    v = trim(v)
+    v = collapse_whitespace(v)
+    v = remove_non_printable_chars(v)
+
+    return v
+
+
+############################
+# 3. FEATURE EXTRACTION
+############################
+
+function EXTRACT_FEATURES(v):
+
+    length = len(v)
+
+    digits  = count_if(v, is_digit)
+    letters = count_if(v, is_alpha)
+    spaces  = count_if(v, is_space)
+
+    symbols = length - digits - letters - spaces
+
+    digit_ratio  = digits / length if length > 0 else 0
+    alpha_ratio  = letters / length if length > 0 else 0
+    symbol_ratio = symbols / length if length > 0 else 0
+
+    token_count  = count_tokens(v)
+    unique_chars = count_unique_chars(v)
+
+    return {
+        length,
+        digit_ratio,
+        alpha_ratio,
+        symbol_ratio,
+        token_count,
+        unique_chars
+    }
+
+
+############################
+# 4. PATTERN SIGNATURE
+############################
+
+function PATTERN_SIGNATURE(v):
+
+    pattern = ""
+
+    for char in v:
+        if is_digit(char):
+            pattern += "9"
+        else if is_alpha(char):
+            pattern += "A"
+        else:
+            pattern += char
+
+    return pattern
+
+
+############################
+# 5. BLOCKING KEY GENERATION
+############################
+
+function GENERATE_BLOCK_KEYS(v, features, pattern):
+
+    keys = []
+
+    keys.append("PFX_" + first_n_chars(v, 3))
+    keys.append("PAT_" + hash(pattern) % 10000)
+    keys.append("LEN_" + bucket(features.length))
+    keys.append("TOK_" + features.token_count)
+
+    return keys
+
+
+############################
+# 6. MAP PHASE (DISTRIBUTED)
+############################
+
+function MAP_STAGE(records):
+
+    for record in records:
+
+        v = NORMALIZE(record.value)
+        f = EXTRACT_FEATURES(v)
+        p = PATTERN_SIGNATURE(v)
+
+        keys = GENERATE_BLOCK_KEYS(v, f, p)
+
+        for key in keys:
+
+            EMIT(key, {
+                record_id: record.record_id,
+                value: v,
+                features: f,
+                pattern: p
+            })
+
+
+############################
+# 7. SHUFFLE / GROUP BY KEY
+############################
+
+function GROUP_BY_KEY(emitted_data):
+
+    grouped = {}
+
+    for (key, item) in emitted_data:
+        grouped[key].append(item)
+
+    return grouped
+
+
+############################
+# 8. LOCAL CLUSTERING PER BLOCK
+############################
+
+function VECTORIZE(features, pattern):
+
+    return [
+        features.length,
+        features.digit_ratio,
+        features.alpha_ratio,
+        features.symbol_ratio,
+        features.token_count,
+        features.unique_chars,
+        hash(pattern) % 10000
+    ]
+
+
+function LOCAL_CLUSTER(block_items):
+
+    X = []
+    ids = []
+
+    for item in block_items:
+        X.append(VECTORIZE(item.features, item.pattern))
+        ids.append(item.record_id)
+
+    labels = DBSCAN(X, eps=ε, min_samples=k)
+
+    clusters = {}
+
+    for i in range(len(ids)):
+        clusters[labels[i]].append(ids[i])
+
+    return clusters
+
+
+############################
+# 9. PROCESS ALL BLOCKS
+############################
+
+function PROCESS_BLOCKS(grouped_data):
+
+    partial_clusters = []
+
+    for key, block_items in grouped_data:
+
+        if size(block_items) < MIN_BLOCK_SIZE:
+            continue
+
+        clusters = LOCAL_CLUSTER(block_items)
+
+        partial_clusters.append(clusters)
+
+    return partial_clusters
+
+
+############################
+# 10. MERGE CLUSTERS (GLOBAL UNION)
+############################
+
+function MERGE_CLUSTERS(partial_clusters):
+
+    UF = UnionFind()
+
+    for block_clusters in partial_clusters:
+        for cluster_id, record_ids in block_clusters:
+
+            for id in record_ids:
+                UF.union(cluster_id, id)
+
+    return UF.get_components()
+
+
+############################
+# 11. QUALITY FILTERING
+############################
+
+function FILTER_CLUSTERS(clusters):
+
+    clean = []
+
+    for cluster in clusters:
+
+        if cohesion(cluster) < THRESHOLD:
+            continue
+
+        clean.append(cluster)
+
+    return clean
+
+
+############################
+# 12. FULL PIPELINE DRIVER
+############################
+
+function MAIN(dataset):
+
+    records = FLATTEN(dataset)
+
+    emitted = MAP_STAGE(records)
+
+    grouped = GROUP_BY_KEY(emitted)
+
+    partial = PROCESS_BLOCKS(grouped)
+
+    merged = MERGE_CLUSTERS(partial)
+
+    final = FILTER_CLUSTERS(merged)
+
+    return final
