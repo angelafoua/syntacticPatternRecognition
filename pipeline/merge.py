@@ -71,19 +71,29 @@ def connected_components(edges: DataFrame, cfg: PipelineConfig) -> DataFrame:
     Returns a DataFrame ``(record_id, cluster_id)`` where ``cluster_id``
     is the smallest record_id reachable from ``record_id``.
     """
-    e = edges.select(F.col("src").cast("long"), F.col("dst").cast("long"))
-    e = e.where(F.col("src") != F.col("dst")).dropDuplicates(["src", "dst"])
-
     if cfg.checkpoint_dir:
-        e.sparkSession.sparkContext.setCheckpointDir(cfg.checkpoint_dir)
+        edges.sparkSession.sparkContext.setCheckpointDir(cfg.checkpoint_dir)
 
-    prev_count = -1
+    e = (
+        edges.select(F.col("src").cast("long"), F.col("dst").cast("long"))
+        .where(F.col("src") != F.col("dst"))
+        .dropDuplicates(["src", "dst"])
+    )
+    # Materialize once: the loop below reads `e` repeatedly, and without a
+    # cache every iteration would replay the entire upstream lineage
+    # (feature UDF, blocking, per-block DBSCAN). That single missing cache
+    # is what turns a 30 s job into a 30 min job on small inputs.
+    e = e.persist()
+    prev_count = e.count()
+
     for i in range(cfg.cc_max_iterations):
-        e = _large_star(e)
-        e = _small_star(e)
+        new_e = _small_star(_large_star(e))
         if cfg.checkpoint_dir and (i % 3 == 2):
-            e = e.checkpoint(eager=True)
-        cnt = _edges_signature(e)
+            new_e = new_e.checkpoint(eager=True)
+        new_e = new_e.persist()
+        cnt = new_e.count()
+        e.unpersist()
+        e = new_e
         if cnt == prev_count:
             break
         prev_count = cnt
@@ -91,7 +101,7 @@ def connected_components(edges: DataFrame, cfg: PipelineConfig) -> DataFrame:
     # After convergence each surviving edge is (node -> root). We also need
     # a self-row for nodes that started as isolated singletons; those were
     # already injected upstream as (id, id) edges so they appear here too.
-    return (
+    out = (
         e.select(
             F.col("src").alias("record_id"),
             F.col("dst").alias("cluster_id"),
@@ -105,3 +115,4 @@ def connected_components(edges: DataFrame, cfg: PipelineConfig) -> DataFrame:
         .groupBy("record_id")
         .agg(F.min("cluster_id").alias("cluster_id"))
     )
+    return out
