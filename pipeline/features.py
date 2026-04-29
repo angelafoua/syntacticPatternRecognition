@@ -37,18 +37,18 @@ FEATURE_FIELDS = [
 ]
 
 FEATURE_SCHEMA = T.StructType([
-    T.StructField("length", T.IntegerType(), False),
-    T.StructField("digit_ratio", T.FloatType(), False),
-    T.StructField("alpha_ratio", T.FloatType(), False),
-    T.StructField("symbol_ratio", T.FloatType(), False),
-    T.StructField("space_ratio", T.FloatType(), False),
-    T.StructField("token_count", T.IntegerType(), False),
-    T.StructField("unique_chars", T.IntegerType(), False),
-    T.StructField("upper_ratio", T.FloatType(), False),
-    T.StructField("vowel_ratio", T.FloatType(), False),
-    T.StructField("entropy", T.FloatType(), False),
-    T.StructField("pattern", T.StringType(), False),
-    T.StructField("pattern_compact", T.StringType(), False),
+    T.StructField("length", T.IntegerType(), True),
+    T.StructField("digit_ratio", T.FloatType(), True),
+    T.StructField("alpha_ratio", T.FloatType(), True),
+    T.StructField("symbol_ratio", T.FloatType(), True),
+    T.StructField("space_ratio", T.FloatType(), True),
+    T.StructField("token_count", T.IntegerType(), True),
+    T.StructField("unique_chars", T.IntegerType(), True),
+    T.StructField("upper_ratio", T.FloatType(), True),
+    T.StructField("vowel_ratio", T.FloatType(), True),
+    T.StructField("entropy", T.FloatType(), True),
+    T.StructField("pattern", T.StringType(), True),
+    T.StructField("pattern_compact", T.StringType(), True),
 ])
 
 

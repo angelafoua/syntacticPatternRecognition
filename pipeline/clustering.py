@@ -28,8 +28,8 @@ from pipeline.features import FEATURE_FIELDS
 
 
 EDGE_SCHEMA = T.StructType([
-    T.StructField("src", T.LongType(), False),
-    T.StructField("dst", T.LongType(), False),
+    T.StructField("src", T.LongType(), True),
+    T.StructField("dst", T.LongType(), True),
 ])
 
 
