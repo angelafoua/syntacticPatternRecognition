@@ -59,7 +59,10 @@ class PipelineConfig:
 
     # ---- Merge -----------------------------------------------------------
     # Iterations for the small-star/large-star connected-components loop.
-    cc_max_iterations: int = 30
+    # Convergence is typically reached in O(log n) rounds, so 12 is plenty
+    # for hundreds of millions of edges. The loop also exits early on a
+    # fixed point.
+    cc_max_iterations: int = 12
 
     # ---- Quality filter --------------------------------------------------
     min_cluster_size: int = 2

@@ -29,6 +29,12 @@ def _build_spark(app_name: str, cfg: PipelineConfig) -> SparkSession:
         .config("spark.sql.execution.arrow.pyspark.enabled", "true")
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.adaptive.skewJoin.enabled", "true")
+        # Coalesce post-shuffle partitions so small intermediate stages
+        # don't each pay full task-launch overhead. Critical on small
+        # local runs where there are far more partitions than data.
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+        .config("spark.sql.adaptive.coalescePartitions.minPartitionSize", "1MB")
+        .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "16MB")
     )
     return builder.getOrCreate()
 
@@ -50,15 +56,18 @@ def run_pipeline(input_path: str, output_path: str,
         cells = flatten(raw)
         cells = normalize(cells, cfg)
         cells = extract_features(cells, cfg)
-        # Cache: cells are reused both for blocking and for the final
-        # cohesion stats. Without persistence the upstream feature UDF
-        # would re-run on the second branch.
+        # Materialize the per-cell features once. Without an eager count
+        # the feature UDF would re-execute every time the DataFrame is
+        # branched (blocking, clustering, cohesion stats).
         cells = cells.persist()
+        cells.count()
 
         keyed = generate_block_keys(cells, cfg)
         keyed = filter_block_sizes(keyed, cfg)
 
-        edges = cluster_blocks(keyed, cfg)
+        edges = cluster_blocks(keyed, cfg).persist()
+        edges.count()  # materialize before the iterative CC loop
+
         assignments = connected_components(edges, cfg)
 
         clusters = aggregate_clusters(assignments, cells, cfg)
