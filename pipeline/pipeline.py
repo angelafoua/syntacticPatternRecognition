@@ -39,6 +39,13 @@ def _build_spark(app_name: str, cfg: PipelineConfig) -> SparkSession:
     return builder.getOrCreate()
 
 
+def _is_alive(session: SparkSession) -> bool:
+    try:
+        return not session.sparkContext._jsc.sc().isStopped()
+    except Exception:
+        return False
+
+
 def run_pipeline(input_path: str, output_path: str,
                  cfg: Optional[PipelineConfig] = None,
                  spark: Optional[SparkSession] = None) -> DataFrame:
@@ -48,8 +55,13 @@ def run_pipeline(input_path: str, output_path: str,
     notebooks or tests can inspect it without re-reading.
     """
     cfg = cfg or PipelineConfig()
-    owns_spark = spark is None
-    spark = spark or _build_spark("syntactic-clustering", cfg)
+    # If the caller passed a dead session (common in notebooks after a
+    # previous run stopped the context), transparently rebuild one. We
+    # only stop the session in `finally` if WE built it.
+    caller_alive = spark is not None and _is_alive(spark)
+    owns_spark = not caller_alive
+    if not caller_alive:
+        spark = _build_spark("syntactic-clustering", cfg)
 
     try:
         raw = read_raw(spark, input_path, cfg)
