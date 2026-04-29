@@ -26,8 +26,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--output", required=True)
     p.add_argument("--format", default="csv",
                    choices=["csv", "tsv", "text", "parquet"])
-    p.add_argument("--has-header", action="store_true")
+    p.add_argument("--has-header", action="store_true",
+                   help="Treat the first row of the input as a header and skip it.")
     p.add_argument("--delimiter", default=",")
+    p.add_argument("--skip-leading-columns", type=int, default=0,
+                   help="Drop the first N data columns (e.g. an existing "
+                        "record-id column) from the cell stream.")
     p.add_argument("--shuffle-partitions", type=int, default=400)
     p.add_argument("--eps", type=float, default=0.35)
     p.add_argument("--min-samples", type=int, default=2)
@@ -48,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         input_format=args.format,
         input_has_header=args.has_header,
         input_delimiter=args.delimiter,
+        skip_leading_columns=args.skip_leading_columns,
         shuffle_partitions=args.shuffle_partitions,
         dbscan_eps=args.eps,
         dbscan_min_samples=args.min_samples,
