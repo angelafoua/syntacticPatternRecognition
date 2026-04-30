@@ -65,6 +65,23 @@ def _edges_signature(edges: DataFrame) -> int:
     return edges.count()
 
 
+def _truncate_lineage(df: DataFrame, cfg: PipelineConfig):
+    """Cut the logical-plan tree so the driver doesn't accumulate it.
+
+    Without this the CC loop's plan grows on every iteration. After 5-10
+    rounds the plan is large enough that Spark's optimizer + serializer
+    OOMs the driver before any executor work begins. Two strategies:
+
+    * If a checkpoint_dir is set, do a real checkpoint (S3 round-trip,
+      slowest but bullet-proof at scale).
+    * Otherwise localCheckpoint to executor memory+disk: cuts the plan
+      without leaving the cluster.
+    """
+    if cfg.checkpoint_dir:
+        return df.checkpoint(eager=True)
+    return df.localCheckpoint(eager=True)
+
+
 def connected_components(edges: DataFrame, cfg: PipelineConfig) -> DataFrame:
     """Run small-star/large-star until the edge set is stable.
 
@@ -83,14 +100,17 @@ def connected_components(edges: DataFrame, cfg: PipelineConfig) -> DataFrame:
     # cache every iteration would replay the entire upstream lineage
     # (feature UDF, blocking, per-block DBSCAN). That single missing cache
     # is what turns a 30 s job into a 30 min job on small inputs.
-    e = e.persist()
+    e = _truncate_lineage(e, cfg)
     prev_count = e.count()
 
     for i in range(cfg.cc_max_iterations):
         new_e = _small_star(_large_star(e))
-        if cfg.checkpoint_dir and (i % 3 == 2):
-            new_e = new_e.checkpoint(eager=True)
-        new_e = new_e.persist()
+        # Truncate lineage EVERY iteration. The previous policy of every
+        # third was not enough at scale: by round 5 the in-memory plan
+        # tree was big enough to OOM the driver during query optimization
+        # (visible in logs as a giant *(N) WholeStageCodegen chain ending
+        # in a driver OutOfMemory before any executor work happened).
+        new_e = _truncate_lineage(new_e, cfg)
         cnt = new_e.count()
         e.unpersist()
         e = new_e
