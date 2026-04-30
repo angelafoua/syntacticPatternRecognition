@@ -62,6 +62,18 @@ class PipelineConfig:
     cluster_sample_cap: int = 5_000
 
     # ---- Merge -----------------------------------------------------------
+    # Strategy for the connected-components / merge step:
+    #   "auto"       - local UF if edges fit, else small/large-star.
+    #   "local"      - always collect edges to driver and run union-find.
+    #                  Trivially fast for ~tens of millions of edges,
+    #                  but blows up the driver if edges don't fit.
+    #   "starstar"   - always run distributed small-star/large-star.
+    #                  Designed for billion-scale.
+    merge_strategy: str = "auto"
+    # Threshold (number of edges) for "auto" to switch from local to
+    # distributed. Below this, edges are pulled to the driver. Above,
+    # the small/large-star loop runs.
+    merge_local_edge_limit: int = 5_000_000
     # Iterations for the small-star/large-star connected-components loop.
     # Convergence is typically reached in O(log n) rounds, so 12 is plenty
     # for hundreds of millions of edges. The loop also exits early on a

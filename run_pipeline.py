@@ -41,6 +41,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--max-cluster-size", type=int, default=1_000_000)
     p.add_argument("--cohesion", type=float, default=0.0)
     p.add_argument("--checkpoint-dir", default="")
+    p.add_argument("--merge-strategy", default="auto",
+                   choices=["auto", "local", "starstar"],
+                   help="How to merge per-block clusters into final entities. "
+                        "'local' collects edges to the driver and runs "
+                        "union-find (fast for <~10M edges). 'starstar' is the "
+                        "distributed small-star/large-star loop for billion-scale. "
+                        "'auto' picks based on --merge-local-edge-limit.")
+    p.add_argument("--merge-local-edge-limit", type=int, default=5_000_000)
     p.add_argument("--output-format", default="parquet",
                    choices=["parquet", "json"])
     return p.parse_args(argv)
@@ -62,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         max_cluster_size=args.max_cluster_size,
         min_cluster_cohesion=args.cohesion,
         checkpoint_dir=args.checkpoint_dir,
+        merge_strategy=args.merge_strategy,
+        merge_local_edge_limit=args.merge_local_edge_limit,
         output_format=args.output_format,
     )
     run_pipeline(args.input, args.output, cfg)
