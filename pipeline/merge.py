@@ -82,12 +82,59 @@ def _truncate_lineage(df: DataFrame, cfg: PipelineConfig):
     return df.localCheckpoint(eager=True)
 
 
+def _local_union_find(edges: DataFrame) -> DataFrame:
+    """Collect edges to the driver and run union-find in pure Python.
+
+    For edge counts up to ~10-50M this is dramatically faster than the
+    distributed loop because it pays one shuffle and zero per-iteration
+    framework overhead. Above that range it OOMs the driver.
+    """
+    pairs = edges.select("src", "dst").toPandas()
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        while parent.setdefault(x, x) != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        # Always orient toward the smaller id so cluster_id == min member.
+        if ra < rb:
+            parent[rb] = ra
+        else:
+            parent[ra] = rb
+
+    for s, d in pairs.itertuples(index=False):
+        union(int(s), int(d))
+
+    rows = [(node, find(node)) for node in parent]
+    spark = edges.sparkSession
+    return spark.createDataFrame(rows, ["record_id", "cluster_id"])
+
+
 def connected_components(edges: DataFrame, cfg: PipelineConfig) -> DataFrame:
-    """Run small-star/large-star until the edge set is stable.
+    """Pick a merge strategy and run it.
 
     Returns a DataFrame ``(record_id, cluster_id)`` where ``cluster_id``
     is the smallest record_id reachable from ``record_id``.
     """
+    strategy = cfg.merge_strategy.lower()
+    if strategy == "local":
+        return _local_union_find(edges)
+    if strategy == "auto":
+        n = edges.count()
+        if n <= cfg.merge_local_edge_limit:
+            return _local_union_find(edges)
+        # else fall through to distributed.
+    return _connected_components_starstar(edges, cfg)
+
+
+def _connected_components_starstar(edges: DataFrame, cfg: PipelineConfig) -> DataFrame:
+    """Run small-star/large-star until the edge set is stable."""
     if cfg.checkpoint_dir:
         edges.sparkSession.sparkContext.setCheckpointDir(cfg.checkpoint_dir)
 
