@@ -54,12 +54,41 @@ class PipelineConfig:
     max_block_size: int = 50_000
 
     # ---- Local clustering -----------------------------------------------
+    # Selects which clustering path runs after blocking:
+    #   "dbscan" - per-block DBSCAN via applyInPandas (legacy default).
+    #   "arcs"   - Spark-native ARCS edge graph mirroring
+    #              blockingandembeddinginer/Algo1_2_v2.
+    clustering_method: str = "dbscan"
+
     # DBSCAN parameters used per block on the normalized feature vector.
     dbscan_eps: float = 0.35
     dbscan_min_samples: int = 2
     # Subsample very large blocks before clustering; remaining points are
     # assigned to the nearest core via 1-NN to bound per-block cost.
     cluster_sample_cap: int = 5_000
+
+    # ---- ARCS clustering (only used when clustering_method == "arcs") ---
+    # Per-block pair contribution: "uniform" = 1/|B|, "idf" = log(N/|B|)/|B|.
+    arcs_weighting: str = "uniform"
+    # Edge-weight threshold; pairs with summed weight >= tau become edges.
+    arcs_tau: float = 0.2
+    # Per-record top-k smallest-block filter (Block Filtering).
+    arcs_top_k: int = 3
+    # Lower-bound floor on intra-block co-key support during refinement.
+    # Effective floor at depth d is max(d, this).
+    arcs_min_intra_freq: int = 2
+    # 0 disables refinement; >0 runs that many refine/merge/purge rounds.
+    arcs_max_recursion_depth: int = 0
+    # Mirror of algo1_2_v2's do_merge / do_purge ablation flags.
+    arcs_do_merge: bool = True
+    # Purge is the heaviest stage in Spark; opt-in.
+    arcs_do_purge: bool = False
+    # Compute guardrail: skip blocks whose pair count exceeds this.
+    arcs_max_block_pair_cost: int = 100_000
+    # Density-floor cluster splitting is not implemented in v1. Setting
+    # > 0 raises NotImplementedError until the follow-up lands.
+    arcs_density_floor: float = 0.0
+    arcs_density_min_size: int = 3
 
     # ---- Merge -----------------------------------------------------------
     # Strategy for the connected-components / merge step:
