@@ -114,6 +114,16 @@ class PipelineConfig:
     max_cluster_size: int = 1_000_000
     min_cluster_cohesion: float = 0.0  # 0 disables cohesion filter
 
+    # ---- Metrics ---------------------------------------------------------
+    # Emit metrics.{json,log} under <output>/_metrics/. Always writes the
+    # predicted size distribution; pair-based P/R/F1 added when truth_file
+    # is provided. Mirror of algo1_2_v2's compute_run_metrics output.
+    metrics_enabled: bool = True
+    # Truth CSV (header + refID,truthID rows). Empty disables pair metrics.
+    truth_file: str = ""
+    # Which physical column of the raw input is the refID used in truth.
+    ref_id_column: int = 0
+
     # ---- Spark / IO ------------------------------------------------------
     shuffle_partitions: int = 400
     output_format: str = "parquet"
