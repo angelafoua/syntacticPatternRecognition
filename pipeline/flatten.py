@@ -66,6 +66,42 @@ def read_raw(spark: SparkSession, path: str, cfg: PipelineConfig,
     return df
 
 
+def extract_ref_id_table(raw: DataFrame, cfg: PipelineConfig,
+                         column_index: int = 0) -> DataFrame:
+    """Build a ``(record_id, ref_id)`` mapping from the un-flattened raw rows.
+
+    Used by ``pipeline.metrics`` to align the pipeline's internal
+    ``record_id`` (a monotonic id stamped in ``read_raw``) with the
+    refIDs in a ground-truth file. The mapping is taken from the same
+    DataFrame used downstream so the ids match exactly.
+
+    For text inputs the ref_id is the ``column_index``-th element of
+    the split cells array. For CSV / TSV / parquet it is the
+    ``column_index``-th physical data column (skipping the internal
+    ``record_id`` / ``_source`` markers). Independent of
+    ``cfg.skip_leading_columns`` so the same column can simultaneously
+    be captured for metrics and dropped from clustering.
+    """
+    if "_cells" in raw.columns:
+        ref_col = F.col("_cells").getItem(column_index)
+    else:
+        data_cols = [c for c in raw.columns if c not in ("record_id", "_source")]
+        if column_index >= len(data_cols):
+            raise ValueError(
+                f"ref_id column_index={column_index} is out of range; "
+                f"raw has {len(data_cols)} data columns: {data_cols}"
+            )
+        ref_col = F.col(data_cols[column_index]).cast(T.StringType())
+
+    return (
+        raw.select(
+            F.col("record_id").cast(T.LongType()),
+            ref_col.alias("ref_id"),
+        )
+        .where(F.col("ref_id").isNotNull() & (F.length(F.col("ref_id")) > 0))
+    )
+
+
 def flatten(df: DataFrame, cfg: Optional[PipelineConfig] = None) -> DataFrame:
     """Explode any wide row into one cell per (record_id, col_index).
 

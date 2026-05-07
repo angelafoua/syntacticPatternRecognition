@@ -18,6 +18,13 @@ Examples:
         --clustering-method arcs \\
         --arcs-tau 0.2 \\
         --arcs-top-k 3
+
+    # With pair-based metrics against a truth file:
+    python run_pipeline.py \\
+        --input s3://bucket/data/S12PX.txt \\
+        --output s3://bucket/output/clusters_arcs/ \\
+        --clustering-method arcs \\
+        --truth-file s3://bucket/data/truthABCpoorDQ.txt
 """
 
 from __future__ import annotations
@@ -94,6 +101,23 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--merge-local-edge-limit", type=int, default=5_000_000)
     p.add_argument("--output-format", default="parquet",
                    choices=["parquet", "json"])
+
+    # ---- Metrics ----
+    p.add_argument("--no-metrics", action="store_true",
+                   help="Skip metrics computation and the metrics.{json,log} "
+                        "output. Predicted-cluster size distribution is "
+                        "otherwise always emitted.")
+    p.add_argument("--truth-file", default="",
+                   help="Path (local or s3://) to a truth CSV with header "
+                        "and 'refID,truthID' rows. When set, pair-based "
+                        "precision / recall / F1 are computed and written "
+                        "alongside the size distributions.")
+    p.add_argument("--ref-id-column", type=int, default=0,
+                   help="Physical column index of the input that holds the "
+                        "refID matching the truth file (default 0). "
+                        "Independent of --skip-leading-columns: the same "
+                        "column can be captured for metrics AND dropped "
+                        "from clustering.")
     return p.parse_args(argv)
 
 
@@ -125,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
         merge_strategy=args.merge_strategy,
         merge_local_edge_limit=args.merge_local_edge_limit,
         output_format=args.output_format,
+        metrics_enabled=not args.no_metrics,
+        truth_file=args.truth_file,
+        ref_id_column=args.ref_id_column,
     )
     run_pipeline(args.input, args.output, cfg)
     return 0
