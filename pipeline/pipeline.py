@@ -14,6 +14,7 @@ from pyspark.sql import functions as F
 
 from pipeline.blocking import filter_block_sizes, generate_block_keys
 from pipeline.clustering import cluster_blocks
+from pipeline.clustering_arcs import cluster_blocks_arcs
 from pipeline.config import PipelineConfig
 from pipeline.features import extract_features
 from pipeline.flatten import flatten, read_raw
@@ -44,6 +45,18 @@ def _is_alive(session: SparkSession) -> bool:
         return not session.sparkContext._jsc.sc().isStopped()
     except Exception:
         return False
+
+
+def _run_clustering(keyed: DataFrame, cfg: PipelineConfig) -> DataFrame:
+    method = cfg.clustering_method.lower()
+    if method == "arcs":
+        return cluster_blocks_arcs(keyed, cfg)
+    if method == "dbscan":
+        return cluster_blocks(keyed, cfg)
+    raise ValueError(
+        f"Unknown clustering_method: {cfg.clustering_method!r} "
+        f"(expected 'dbscan' or 'arcs')"
+    )
 
 
 def run_pipeline(input_path: str, output_path: str,
@@ -77,7 +90,7 @@ def run_pipeline(input_path: str, output_path: str,
         keyed = generate_block_keys(cells, cfg)
         keyed = filter_block_sizes(keyed, cfg)
 
-        edges = cluster_blocks(keyed, cfg).persist()
+        edges = _run_clustering(keyed, cfg).persist()
         edges.count()  # materialize before the iterative CC loop
 
         assignments = connected_components(edges, cfg)
